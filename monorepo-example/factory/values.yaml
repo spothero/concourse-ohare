@@ -1,5 +1,0 @@
-#@data/values
----
-pipelines:
- - team: example-team
-   name: example-pipeline
