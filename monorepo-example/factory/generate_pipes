@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+target=$1
+
+generate_pipes_yaml() {
+  echo "#@data/values"
+  echo "---"
+  echo "pipelines:"
+
+  for dir in $(fd ohare.ya?ml pipelines); do
+    echo " - team: $(dirname $dir | cut -d "/" -f2)"
+    echo "   name: $(dirname $dir | cut -d "/" -f3)"
+  done
+}
+
+generate_pipes_yaml > $target

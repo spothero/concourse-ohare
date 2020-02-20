@@ -1,0 +1,74 @@
+resource_types:
+- name: concourse-pipeline
+  type: registry-image
+  source:
+    repository: concourse/concourse-pipeline-resource
+resources:
+- name: src
+  type: git
+  icon: github-circle
+  source:
+    branch: master
+    uri: <monorepo_url>
+- name: internal-concourse
+  type: concourse-pipeline
+  icon: airplane-takeoff
+  source:
+    target: <concourse_instance_url>
+    teams:
+    - name: example-team
+      username: ((global_concourse_username))
+      password: ((global_concourse_password))
+jobs:
+- name: self-updater
+  plan:
+  - get: src
+    trigger: true
+  - task: pipeline-generator
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          repository: spothero/concourse-ohare
+      run:
+        path: pipeline-generator
+      inputs:
+      - name: src
+      outputs:
+      - name: root
+        path: output
+  - put: internal-concourse
+    params:
+      pipelines:
+      - name: ord
+        team: main
+        config_file: root/pipeline.yml
+- name: example-team-example-pipeline
+  plan:
+  - get: src
+    trigger: true
+    passed:
+    - self-updater
+  - task: build-example-pipeline
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          repository: spothero/concourse-ohare
+      run:
+        path: pipeline-generator
+      inputs:
+      - name: src
+      outputs:
+      - name: example-pipeline-output
+        path: output
+      params:
+        CONTEXT: pipelines/example-team/example-pipeline
+  - put: internal-concourse
+    params:
+      pipelines:
+      - name: example-pipeline
+        team: example-team
+        config_file: example-pipeline-output/pipeline.yml

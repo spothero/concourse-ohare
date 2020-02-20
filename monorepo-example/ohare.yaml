@@ -1,0 +1,8 @@
+ohare:
+  app_name: ord
+  team_name: main
+  before_hooks:
+    - ./factory/generate_pipes factory/values.yaml
+  templater: ytt
+  ytt:
+    args: -f factory/

@@ -1,0 +1,18 @@
+FROM alpine:3
+
+RUN  echo "@edge-main http://dl-cdn.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories \
+  && echo "@edge-community http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories \
+  && echo "@edge-testing http://dl-cdn.alpinelinux.org/alpine/edge/testing" >> /etc/apk/repositories \
+  && apk add --update --no-cache \
+    bash \
+    ca-certificates \
+    curl \
+    coreutils \
+    jq \
+    make \
+    ripgrep@edge-community \
+    fd@edge-community \
+  && wget -O /usr/bin/yq https://github.com/mikefarah/yq/releases/download/2.4.1/yq_linux_amd64 \
+  && wget -O /tmp/task.tar.gz https://github.com/go-task/task/releases/download/v2.8.0/task_linux_amd64.tar.gz \
+  && tar -C /usr/bin -xvf /tmp/task.tar.gz task \
+  && chmod a+x /usr/bin/yq

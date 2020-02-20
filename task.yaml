@@ -1,0 +1,18 @@
+---
+platform: linux
+
+image_resource:
+  type: registry-image
+  source:
+    repository: spothero/concourse-ohare
+    tag: latest
+
+inputs:
+- name: src
+outputs:
+- name: output
+
+run:
+  path: pipeline-generator
+params:
+  CONTEXT: some/sub/directory/of/src

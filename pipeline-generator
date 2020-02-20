@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+# this concourse task generates pipelines in the Spothero O'Hare Project
+set -euo pipefail
+
+SOURCE_DIRECTORY="${SOURCE_DIR:-src}"
+CONTEXT="${CONTEXT:-}"
+TARGET="${SOURCE_DIRECTORY}/${CONTEXT}"
+
+if [[ -d "${TARGET}" ]]; then
+  cd "${TARGET}"
+else
+  echo "Cannot find directory: ${TARGET}, exiting."
+  exit 1
+fi
+
+# there should only be one of these, yaml is the correct extension
+# but unfortunately we use yml in places
+OHARE_FILE="$(fd 'ohare.ya?ml' --type file --max-depth 1)"
+
+if [[ -z "${OHARE_FILE}" ]]; then
+  echo "Cannot find ohare.yaml, which is required. Exiting."
+  exit 1
+fi
+
+yaml_value_exists() {
+  local file key
+  file="$1"
+  key="$2"
+
+  if [[ "$(yq read "$file" "$key")" != "null" ]]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+yaml_value_is_array() {
+  local file key
+  file="$1"
+  key="$2"
+
+  if yq read "$file" "$key" | rg -q '^- '; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+yaml_value_to_bash_array() {
+  local file key arrayname
+  file="$1"
+  key="$2"
+  arrayname="$3"
+
+  if yaml_value_exists "$file" "$key"; then
+    if yaml_value_is_array "$file" "$key"; then
+      readarray -t "$arrayname" <<< "$(yq read "$file" "$key" --tojson | jq -r '.[]')"
+    else
+      readarray -t "$arrayname" <<< "$(yq read "$file" "$key")"
+    fi
+  else
+    # empty array
+    declare -a "$arrayname"
+  fi
+}
+
+yaml_value_to_bash_array "${OHARE_FILE}" 'ohare.before_hooks' "BEFORE_HOOKS"
+yaml_value_to_bash_array "${OHARE_FILE}" 'ohare.after_hooks' "AFTER_HOOKS"
+TEMPLATER="$(yq read "${OHARE_FILE}" 'ohare.templater')"
+
+### the logic here defines the interface for how pipelines are built.
+### in every case, we expect the output to generate a `pipeline.yml` file
+### This will be documented in the spothero/ord.
+if [[ "${TEMPLATER}" != "null" ]]; then
+
+  for e in "${BEFORE_HOOKS[@]}"; do
+    # shellcheck disable=SC2086
+    $e
+  done
+
+  ## Method 1: Aviator
+  if [[ "${TEMPLATER}" == "aviator" ]]; then
+    aviator
+
+  ## Method 2: static file or directory
+  elif [[ "${TEMPLATER}" == "static" ]]; then
+
+    path="$(yq read "${OHARE_FILE}" 'ohare.static.path')"
+
+    if [[ "${path}" != "null" ]]; then
+      if [[ -d "${path}" ]]; then
+        cat "${path}/*.yaml" > pipeline.yml
+      elif [[ -f "${path}" ]]; then
+        cp "${path}" pipeline.yml
+      fi
+    elif [[ -e 'static-pipeline.yml' ]]; then
+      cp static-pipeline.yml pipeline.yml
+    elif [[ -e 'static-pipeline.yaml' ]]; then
+      cp static-pipeline.yaml pipeline.yml
+    fi
+
+  ## Method 3: ytt, with arg overloading!
+  elif [[ "${TEMPLATER}" == "ytt" ]]; then
+
+    ytt_args="$(yq read "${OHARE_FILE}" 'ohare.ytt.args')"
+
+    if [[ "${ytt_args}" != "null" ]]; then
+      # shellcheck disable=SC2086
+      ytt ${ytt_args} > pipeline.yml
+    else
+      ytt -f . --file-mark "${OHARE_FILE}:exclude=true" > pipeline.yml
+    fi
+
+  fi
+
+  for e in "${AFTER_HOOKS[@]}"; do
+    # shellcheck disable=SC2086
+    $e
+  done
+
+else
+  ## just to keep things working for now delete this once
+  ## the mono repo is moved over to the ohare.yaml interface
+  if [[ -e 'aviator.yml' ]]; then
+    aviator
+  elif [[ -e 'static-pipeline.yml' ]]; then
+    cp static-pipeline.yml pipeline.yml
+  fi
+fi
+
+## Importing Other Pipes
+NUMBER_OF_ENTRIES="$(yq read "${OHARE_FILE}" --tojson | jq -r '.ohare.pipes | length')"
+
+if [[ ${NUMBER_OF_ENTRIES} -gt 0 ]]; then
+  TEMPDIR="$(mktemp --directory)"
+
+  for i in $(seq 1 "${NUMBER_OF_ENTRIES}"); do
+    INDEX=$((i-1))
+    PIPE_PATH="$(yq read "${OHARE_FILE}" ohare.pipes[$INDEX].path)"
+
+    if [[ "${PIPE_PATH}" == "null" ]]; then
+      echo "Cannot find name for ohare.pipes[$INDEX], exiting."
+      exit 1
+    fi
+
+    if [[ ! -d "${PIPE_PATH}" ]]; then
+      echo "Current directory: $PWD"
+      echo "Cannot find directory for ohare.pipes[$INDEX]: ${PIPE_PATH}, exiting"
+      exit 1
+    fi
+
+    # because ytt wants to operate on a collection of files, and at the time of this writing
+    # does not want you specifying variables on the command line (per the #k14s channel in k8 slack),
+    # we fake it here by extracting a subtree of our caller ohare.yaml file, annotating it for overlay,
+    # and passing it to the callee template directory via ytt's STDIN (-f -).
+    # An error is hit if no variables are passed, thus the if/else.
+    if yaml_value_exists "${OHARE_FILE}" "ohare.pipes[$INDEX].vars"; then
+      (echo -e "#@data/values\n---" && yq read "${OHARE_FILE}" "ohare.pipes[$INDEX].vars") |
+        ytt -f "${PIPE_PATH}" -f - > "${TEMPDIR}/${INDEX}.yaml"
+    else
+        ytt -f "${PIPE_PATH}" > "${TEMPDIR}/${INDEX}.yaml"
+    fi
+
+  done
+
+  if [[ -e pipeline.yml ]]; then
+    CURRENT_PIPELINE=pipeline.yml
+  else
+    CURRENT_PIPELINE=<(echo "---")
+  fi
+
+  # shellcheck disable=SC2046
+  yq merge --allow-empty --append "${CURRENT_PIPELINE}" \
+    $(for i in $(seq 1 "${NUMBER_OF_ENTRIES}"); do echo "${TEMPDIR}/$((i-1)).yaml"; done) > "${TEMPDIR}/result.yaml"
+
+  cp "${TEMPDIR}/result.yaml" pipeline.yml
+fi
+
+###
+### </business logic>
+
+cd - >/dev/null
+mv "${TARGET}/pipeline.yml" output/pipeline.yml
