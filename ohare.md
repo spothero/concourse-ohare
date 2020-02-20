@@ -22,8 +22,7 @@ before_hooks    | `[]string`       | Array of strings to be executed before runn
 after_hooks     | `[]string`       | Array of strings to be executed after running the templater.
 pipes           | []pipe object    | Specifies a list of Pipes to be generated, and merged together with your existing pipeline.
 
-Hooks are really dumb. They are executed inline of the pipeline-generator script, in the current working directory, inside the dockerfile
-described [here](https://github.com/spothero/mdw/blob/master/task-pipeline-generator/Dockerfile) and [here](https://github.com/spothero/mdw/blob/master/baseline/Dockerfile).
+Hooks are really dumb. They are executed inline of the pipeline-generator script, in the current working directory, inside the dockerfile.
 
 They are an escape hatch. IE, if you set:
 
@@ -35,8 +34,7 @@ ohare:
 
 We will run exactly that line before generation. This lets you do pretty much anything.
 
-We use it in the [ord repository](https://github.com/spothero/ord/blob/master/ohare.yaml) to generate the current directories
-we need to run pipeline-generator on, via [this dumb script.](https://github.com/spothero/ord/blob/master/factory/generate_pipes)
+We use it in our monorepo to generate the current directories we need to run pipeline-generator on, via the generate_pipes script.
 
 ### pipe object
 
