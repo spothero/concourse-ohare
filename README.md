@@ -6,7 +6,7 @@ a pipeline.yaml file such that it can be uploaded to concourse. Powered by a bas
 This enables dynamic pipelines via ytt templating. It also enables composing a separate
 series of [ytt](https://get-ytt.io) templated pipelines together, with or without local pipelines.
 
-For more information, see the [ohare.yaml](ohare.yaml) spec.
+For more information, see the [ohare.yaml](ohare.md) spec.
 
 We use this at Spothero to use a monorepo to populate all our pipelines.
 
